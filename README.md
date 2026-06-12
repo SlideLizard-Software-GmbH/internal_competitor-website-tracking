@@ -40,4 +40,4 @@ First run for a site = baseline snapshot only (no analysis — everything would 
 - Requires the `claude` CLI on PATH (headless analysis via `claude -p`).
 - Crawls run unthrottled and ignore `robots.txt` — intended for fetching a competitor's own public sitemap URLs.
 - Failed page fetches (404/timeout/5xx) are logged and skipped; the previous local copy is kept.
-- `smoke.mjs` is an offline end-to-end test: `node smoke.mjs`.
+- `local-test.mjs` is an offline end-to-end test: `node local-test.mjs`.
