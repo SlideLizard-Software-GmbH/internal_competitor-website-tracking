@@ -1,0 +1,56 @@
+name: observe
+
+on:
+  schedule:
+    - cron: "17 4 * * *" # daily 04:17 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: observe
+  cancel-in-progress: false
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout mirror (data) repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history — per-domain baseline uses `git log -- <domain>/`
+
+      - name: Checkout observer (tool) repo
+        uses: actions/checkout@v4
+        with:
+          repository: SlideLizard-Software-GmbH/internal_competitor-website-tracking
+          path: .observer-tool
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install tool dependencies
+        working-directory: .observer-tool
+        run: npm ci
+
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Run observer
+        working-directory: .observer-tool
+        env:
+          OBSERVER_WORKDIR: ${{ github.workspace }}
+          OBSERVER_CONFIG: ${{ github.workspace }}/config.json
+          OBSERVER_PUSH: "false" # the push step below handles it
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: npx tsx src/index.ts
+
+      - name: Push mirror changes
+        run: git push

@@ -1,4 +1,5 @@
 node_modules/
+.testwork/
 
 # Domain mirrors created by the crawler (subdirs named after domains like smartpoint.at/, example.com/)
 *.at/

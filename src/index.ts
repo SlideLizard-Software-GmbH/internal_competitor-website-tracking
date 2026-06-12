@@ -1,17 +1,17 @@
 import { readFile } from "node:fs/promises";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { collectSitemapEntries } from "./sitemap.js";
 import { planCrawl, executeCrawl } from "./crawl.js";
-import { ensureRepo, lastCommitEpoch, hasCommits, commitAll } from "./git.js";
+import { ensureRepo, lastCommitEpochForPath, commitPath, push } from "./git.js";
 import { analyzeCommit, writeReport } from "./analyze.js";
 import type { SiteConfig } from "./types.js";
 
-const PROJECT_ROOT = path.resolve(fileURLToPath(import.meta.url), "../..");
+// The mirror repo: where domain subfolders + reports live. Defaults to CWD so the
+// same tool can run against any checkout (locally or inside GitHub Actions).
+const WORKDIR = path.resolve(process.env.OBSERVER_WORKDIR ?? process.cwd());
 
-// Reports + state live here per domain and are kept out of the mirror diffs.
-const GITIGNORE = ["reports/", ".state/", "node_modules/", ""].join("\n");
+const GITIGNORE = ["node_modules/", ".state/", ""].join("\n");
 
 function domainOf(sitemapUrl: string): string {
   return new URL(sitemapUrl).hostname.replace(/^www\./, "");
@@ -22,47 +22,53 @@ function today(): string {
 }
 
 async function loadConfig(): Promise<SiteConfig[]> {
-  const configArg = process.argv[2];
-  const configPath = configArg
-    ? path.resolve(configArg)
-    : path.join(PROJECT_ROOT, "config.json");
+  const configPath = path.resolve(
+    process.env.OBSERVER_CONFIG ?? process.argv[2] ?? path.join(WORKDIR, "config.json"),
+  );
   const raw = await readFile(configPath, "utf8");
   const parsed = JSON.parse(raw);
   if (!Array.isArray(parsed)) throw new Error("config.json must be an array of sites");
   return parsed;
 }
 
+function ensureRepoScaffold(): void {
+  ensureRepo(WORKDIR);
+  for (const [name, content] of [
+    [".gitignore", GITIGNORE],
+    [".gitattributes", "* -text\n"],
+  ] as const) {
+    const file = path.join(WORKDIR, name);
+    if (!existsSync(file)) writeFileSync(file, content, "utf8");
+  }
+}
+
 async function observeSite(site: SiteConfig): Promise<void> {
   const domain = domainOf(site.sitemapUrl);
-  const repoDir = path.join(PROJECT_ROOT, domain);
-  const pagesDir = repoDir;
-  const reportsDir = path.join(repoDir, "reports");
+  const pagesDir = path.join(WORKDIR, domain);
+  const reportsDir = path.join(pagesDir, "reports");
 
   console.log(`\n=== ${site.name} (${domain}) ===`);
+  mkdirSync(pagesDir, { recursive: true });
 
-  mkdirSync(repoDir, { recursive: true });
-  const isNewRepo = ensureRepo(repoDir);
-  writeFileSync(path.join(repoDir, ".gitignore"), GITIGNORE, "utf8");
-  writeFileSync(path.join(repoDir, ".gitattributes"), "* -text\n", "utf8");
-
-  const firstRun = isNewRepo || !hasCommits(repoDir);
-  const baselineEpoch = lastCommitEpoch(repoDir);
+  // Per-domain baseline: last commit that touched this folder. null = first crawl.
+  const baselineEpoch = lastCommitEpochForPath(WORKDIR, domain);
+  const firstRun = baselineEpoch === null;
 
   console.log(`  fetching sitemap ${site.sitemapUrl}`);
   const entries = await collectSitemapEntries(site.sitemapUrl);
   console.log(`  ${entries.length} URLs in sitemap`);
 
-  const plan = await planCrawl(pagesDir, entries, firstRun ? null : baselineEpoch);
+  const plan = await planCrawl(pagesDir, entries, baselineEpoch);
   console.log(
     `  plan: ${plan.added.length} new, ${plan.changed.length} changed, ` +
       `${plan.removedFiles.length} removed, ${plan.unchanged.length} unchanged`,
   );
 
-  const result = await executeCrawl(repoDir, pagesDir, plan);
+  const result = await executeCrawl(WORKDIR, pagesDir, plan);
   console.log(`  fetched ${result.fetched}, failed ${result.failed}, removed ${result.removed}`);
 
-  const msg = `crawl ${today()}: ${plan.changed.length} changed, ${plan.added.length} new, ${result.removed} removed`;
-  const commit = commitAll(repoDir, msg);
+  const msg = `${domain} ${today()}: ${plan.changed.length} changed, ${plan.added.length} new, ${result.removed} removed`;
+  const commit = commitPath(WORKDIR, domain, msg);
 
   if (!commit) {
     console.log("  no changes to commit");
@@ -77,9 +83,11 @@ async function observeSite(site: SiteConfig): Promise<void> {
 
   console.log("  analyzing commit with Claude…");
   try {
-    const report = await analyzeCommit(repoDir, commit, site.name);
+    const report = await analyzeCommit(WORKDIR, commit, site.name, domain);
     const file = await writeReport(reportsDir, today(), report);
-    console.log(`  report → ${path.relative(PROJECT_ROOT, file)}`);
+    // Commit the report separately so it never appears in a diff Claude analyzes.
+    commitPath(WORKDIR, domain, `${domain} report ${today()}`);
+    console.log(`  report → ${path.relative(WORKDIR, file)}`);
     console.log("\n" + report + "\n");
   } catch (err) {
     console.error(`  analysis failed: ${(err as Error).message}`);
@@ -87,12 +95,22 @@ async function observeSite(site: SiteConfig): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  ensureRepoScaffold();
   const sites = await loadConfig();
   for (const site of sites) {
     try {
       await observeSite(site);
     } catch (err) {
       console.error(`! ${site.name} failed: ${(err as Error).message}`);
+    }
+  }
+
+  if (process.env.OBSERVER_PUSH !== "false") {
+    try {
+      push(WORKDIR);
+      console.log("\npushed to origin");
+    } catch (err) {
+      console.error(`push failed: ${(err as Error).message}`);
     }
   }
 }

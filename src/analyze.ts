@@ -2,14 +2,14 @@ import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-const PROMPT = (commit: string, name: string) => `You are analyzing changes a competitor made to their website "${name}".
+const PROMPT = (commit: string, name: string, scope: string) => `You are analyzing changes a competitor made to their website "${name}".
 
-This git repository is a local mirror of their site (one cleaned HTML file per page, laid out by URL path). The commit ${commit} captures the latest crawl.
+This git repository mirrors several competitors, one per top-level folder. This competitor lives under "${scope}/" (one cleaned HTML file per page, laid out by URL path). The commit ${commit} captures the latest crawl of this competitor.
 
-Run git yourself to inspect that commit:
-  git show --stat ${commit}
-  git show ${commit}
-Use --stat first to see added/removed/modified files (each file path mirrors a page URL), then read the diffs that matter.
+Run git yourself to inspect ONLY this competitor's changes in that commit (the pathspec scopes to its folder and excludes its committed reports):
+  git show --stat ${commit} -- ${scope}/ ':(exclude)${scope}/reports/'
+  git show ${commit} -- ${scope}/ ':(exclude)${scope}/reports/'
+Use --stat first to see added/removed/modified files (each path mirrors a page URL), then read the diffs that matter. Do not look at other folders.
 
 Write a concise report in English with these sections (omit a section if empty):
 
@@ -32,13 +32,18 @@ If nothing meaningful changed, say exactly: "No meaningful changes this crawl."
 Output only the report markdown. Do not preface it with commentary.`;
 
 /** Run headless Claude Code in the repo to analyze a commit. Returns the report markdown. */
-export function analyzeCommit(repoDir: string, commit: string, name: string): Promise<string> {
+export function analyzeCommit(
+  repoDir: string,
+  commit: string,
+  name: string,
+  scope: string,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(
       "claude",
       [
         "-p",
-        PROMPT(commit, name),
+        PROMPT(commit, name, scope),
         "--allowedTools",
         "Bash(git:*)",
         "Read",

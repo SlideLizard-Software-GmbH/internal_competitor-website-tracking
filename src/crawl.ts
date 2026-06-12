@@ -51,9 +51,11 @@ export async function planCrawl(
     }
   }
 
-  // Find local files no longer present in the sitemap.
+  // Find local files no longer present in the sitemap (committed reports live
+  // under reports/ and are not page mirrors, so skip them).
   if (existsSync(pagesDir)) {
     for await (const f of glob("**/*.html", { cwd: pagesDir })) {
+      if (f.startsWith("reports/") || f.startsWith("reports\\")) continue;
       const abs = path.resolve(pagesDir, f);
       if (!expectedFiles.has(abs)) plan.removedFiles.push(abs);
     }
