@@ -1,0 +1,19 @@
+README.md
+  s_d8a536c0bd1faf::t_628b23903c35a3 43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "04a6eb01ca79496c912327985edaa57bca60b47b",
+  "prompts": {},
+  "sessions": {
+    "s_d8a536c0bd1faf": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d2b58d8f-d276-45f1-b82d-d05bbccb4c14",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Daniel Amerbauer <daniel.amerbauer@slidelizard.at>"
+    }
+  }
+}
