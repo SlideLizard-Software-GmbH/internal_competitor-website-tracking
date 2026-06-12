@@ -1,0 +1,12 @@
+node_modules/
+
+# Domain mirrors created by the crawler (subdirs named after domains like smartpoint.at/, example.com/)
+*.at/
+*.com/
+*.de/
+*.eu/
+*.org/
+*.net/
+*.io/
+*.co/
+*.ch/
